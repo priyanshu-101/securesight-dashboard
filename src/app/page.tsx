@@ -5,9 +5,13 @@ import { useState, useEffect, useRef } from 'react';
 interface Incident {
   id: number;
   type: string;
-  camera: string;
-  timestamp: string;
-  status: 'resolved' | 'unresolved';
+  camera_id: number;
+  camera_name: string;
+  camera_location: string;
+  ts_start: string;
+  ts_end: string;
+  thumbnail_url?: string;
+  resolved: boolean;
 }
 
 interface CameraEvent {
@@ -29,15 +33,11 @@ export default function SecurityDashboard() {
   const videoRef3 = useRef<HTMLVideoElement>(null);
   const [cameraStream2, setCameraStream2] = useState<MediaStream | null>(null);
   const [cameraStream3, setCameraStream3] = useState<MediaStream | null>(null);
-  const [incidents] = useState<Incident[]>([
-    { id: 1, type: 'Unauthorised Access', camera: 'Shop Floor Camera A', timestamp: '14:35 - 14:37 on 7-Jul-2025', status: 'unresolved' },
-    { id: 2, type: 'Gun Threat', camera: 'Shop Floor Camera A', timestamp: '14:35 - 14:37 on 7-Jul-2025', status: 'unresolved' },
-    { id: 3, type: 'Unauthorised Access', camera: 'Shop Floor Camera A', timestamp: '14:35 - 14:37 on 7-Jul-2025', status: 'unresolved' },
-    { id: 4, type: 'Unauthorised Access', camera: 'Shop Floor Camera A', timestamp: '14:35 - 14:37 on 7-Jul-2025', status: 'unresolved' },
-    { id: 5, type: 'Unauthorised Access', camera: 'Shop Floor Camera A', timestamp: '14:35 - 14:37 on 7-Jul-2025', status: 'unresolved' },
-  ]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [cameraEvents] = useState<CameraEvent[]>([
+  const [cameraEvents, setCameraEvents] = useState<CameraEvent[]>([
     { camera: 'Camera - 01', type: 'Unauthorised Access', time: '03:00', color: 'bg-orange-500' },
     { camera: 'Camera - 01', type: 'Face Recognised', time: '14:45', color: 'bg-blue-500' },
     { camera: 'Camera - 01', type: 'Multiple Events', time: '4 Multiple Events', color: 'bg-yellow-500' },
@@ -46,6 +46,75 @@ export default function SecurityDashboard() {
     { camera: 'Camera - 03', type: 'Traffic congestion', time: '', color: 'bg-green-500' },
     { camera: 'Camera - 03', type: 'Unauthorised Access', time: '', color: 'bg-orange-500' },
   ]);
+
+  // Generate camera events from incidents
+  useEffect(() => {
+    if (incidents.length > 0) {
+      const eventsByCamera: { [key: string]: CameraEvent[] } = {};
+      
+      incidents.forEach(incident => {
+        const cameraKey = incident.camera_name;
+        const time = new Date(incident.ts_start).toLocaleTimeString('en-GB', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        let color = 'bg-gray-500';
+        if (incident.type.includes('Unauthorised') || incident.type.includes('Access')) {
+          color = 'bg-orange-500';
+        } else if (incident.type.includes('Face') || incident.type.includes('Recognition')) {
+          color = 'bg-blue-500';
+        } else if (incident.type.includes('Traffic') || incident.type.includes('congestion')) {
+          color = 'bg-green-500';
+        } else if (incident.type.includes('Gun') || incident.type.includes('Weapon')) {
+          color = 'bg-red-500';
+        }
+
+        const event: CameraEvent = {
+          camera: cameraKey,
+          type: incident.type,
+          time: time,
+          color: color
+        };
+
+        if (!eventsByCamera[cameraKey]) {
+          eventsByCamera[cameraKey] = [];
+        }
+        eventsByCamera[cameraKey].push(event);
+      });
+
+      // Convert to array format expected by the UI
+      const allEvents: CameraEvent[] = [];
+      Object.entries(eventsByCamera).forEach(([camera, events]) => {
+        if (events.length > 1) {
+          // Group multiple events
+          allEvents.push({
+            camera: camera,
+            type: 'Multiple Events',
+            time: `${events.length} Events`,
+            color: 'bg-yellow-500'
+          });
+        } else if (events.length === 1) {
+          allEvents.push(events[0]);
+        }
+      });
+
+      // Add default cameras if no incidents
+      const defaultCameras = ['Camera - 01', 'Camera - 02', 'Camera - 03'];
+      defaultCameras.forEach(camera => {
+        if (!eventsByCamera[camera] && !eventsByCamera[camera.replace(' - ', ' ')]) {
+          allEvents.push({
+            camera: camera,
+            type: 'No Activity',
+            time: '',
+            color: 'bg-gray-600'
+          });
+        }
+      });
+
+      setCameraEvents(allEvents);
+    }
+  }, [incidents]);
 
   useEffect(() => {
     // Set initial time on client side only
@@ -128,8 +197,8 @@ export default function SecurityDashboard() {
     }
   }, [cameraStream3]);
 
-  const unresolvedCount = incidents.filter(i => i.status === 'unresolved').length;
-  const resolvedCount = incidents.filter(i => i.status === 'resolved').length;
+  const unresolvedCount = incidents.filter(i => !i.resolved).length;
+  const resolvedCount = incidents.filter(i => i.resolved).length;
 
   const toggleCamera = async () => {
     if (isCameraEnabled) {
@@ -250,6 +319,74 @@ export default function SecurityDashboard() {
       }
     }
   };
+
+  // API integration functions
+  const fetchIncidents = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/incidents');
+      if (!response.ok) {
+        throw new Error('Failed to fetch incidents');
+      }
+      const data = await response.json();
+      setIncidents(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch incidents');
+      console.error('Error fetching incidents:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resolveIncident = async (incidentId: number) => {
+    try {
+      const response = await fetch(`/api/incidents/${incidentId}/resolve`, {
+        method: 'PATCH',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to resolve incident');
+      }
+      const updatedIncident = await response.json();
+      
+      // Update the incident in the state
+      setIncidents(prev => 
+        prev.map(incident => 
+          incident.id === incidentId 
+            ? { ...incident, resolved: updatedIncident.resolved }
+            : incident
+        )
+      );
+    } catch (err) {
+      console.error('Error resolving incident:', err);
+      alert('Failed to resolve incident: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  };
+
+  const formatTimestamp = (start: string, end: string) => {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const formatTime = (date: Date) => date.toLocaleTimeString('en-GB', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+    const formatDate = (date: Date) => date.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+    
+    return `${formatTime(startDate)} - ${formatTime(endDate)} on ${formatDate(startDate)}`;
+  };
+
+  useEffect(() => {
+    fetchIncidents();
+    
+    // Set up polling to refresh incidents every 30 seconds
+    const interval = setInterval(fetchIncidents, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -426,33 +563,64 @@ export default function SecurityDashboard() {
                 </div>
                 <span className="font-semibold">{unresolvedCount} Unresolved Incidents</span>
                 <div className="ml-auto flex gap-2">
-                  <span className="text-xs bg-blue-600 px-2 py-1 rounded">📊</span>
-                  <span className="text-xs bg-green-600 px-2 py-1 rounded">✅ {resolvedCount} resolved incidents</span>
+                  <button 
+                    onClick={fetchIncidents}
+                    className="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
+                    title="Refresh incidents"
+                  >
+                    �
+                  </button>
+                  <span className="text-xs bg-green-600 px-2 py-1 rounded">✅ {resolvedCount} resolved</span>
                 </div>
               </div>
 
               <div className="space-y-3 max-h-64 overflow-y-auto">
-                {incidents.map((incident) => (
-                  <div key={incident.id} className="bg-gray-800 rounded-lg p-3 border-l-4 border-orange-500">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-orange-500">⚠️</span>
-                          <span className="font-medium text-sm">{incident.type}</span>
-                        </div>
-                        <div className="text-xs text-gray-400 mb-1">
-                          📍 {incident.camera}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          🕐 {incident.timestamp}
+                {loading ? (
+                  <div className="bg-gray-800 rounded-lg p-3 text-center">
+                    <div className="text-gray-400">Loading incidents...</div>
+                  </div>
+                ) : error ? (
+                  <div className="bg-red-900 rounded-lg p-3 text-center">
+                    <div className="text-red-300">Error: {error}</div>
+                    <button 
+                      onClick={fetchIncidents}
+                      className="mt-2 bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : incidents.length === 0 ? (
+                  <div className="bg-gray-800 rounded-lg p-3 text-center">
+                    <div className="text-gray-400">No incidents found</div>
+                  </div>
+                ) : (
+                  incidents
+                    .filter(incident => !incident.resolved)
+                    .map((incident) => (
+                      <div key={incident.id} className="bg-gray-800 rounded-lg p-3 border-l-4 border-orange-500">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-orange-500">⚠️</span>
+                              <span className="font-medium text-sm">{incident.type}</span>
+                            </div>
+                            <div className="text-xs text-gray-400 mb-1">
+                              📍 {incident.camera_name} ({incident.camera_location})
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              🕐 {formatTimestamp(incident.ts_start, incident.ts_end)}
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => resolveIncident(incident.id)}
+                            className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded text-xs font-medium"
+                          >
+                            Resolve →
+                          </button>
                         </div>
                       </div>
-                      <button className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded text-xs font-medium">
-                        Resolve →
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    ))
+                )}
               </div>
             </div>
           </div>
@@ -513,9 +681,12 @@ export default function SecurityDashboard() {
                   </div>
                   <div className="flex-1 h-6 bg-gray-800 rounded relative">
                     <div className={`absolute left-1/4 top-1 bottom-1 w-8 ${event.color} rounded text-xs flex items-center justify-center text-white`}>
-                      {event.type.includes('Unauthorised') ? '⚠️' : 
-                       event.type.includes('Face') ? '👤' : 
-                       event.type.includes('Traffic') ? '🚗' : '📊'}
+                      {event.type.includes('Unauthorised') || event.type.includes('Access') ? '⚠️' : 
+                       event.type.includes('Face') || event.type.includes('Recognition') ? '👤' : 
+                       event.type.includes('Traffic') || event.type.includes('congestion') ? '🚗' :
+                       event.type.includes('Gun') || event.type.includes('Weapon') ? '🔫' :
+                       event.type.includes('Multiple') ? '📊' :
+                       event.type.includes('No Activity') ? '💤' : '📊'}
                     </div>
                     {event.time && (
                       <div className="absolute right-2 top-1 text-xs text-gray-400">

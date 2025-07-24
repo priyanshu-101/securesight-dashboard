@@ -4,8 +4,9 @@ import type { RowDataPacket, OkPacket } from 'mysql2';
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const id = params.id;
   try {
     // Flip the resolved status

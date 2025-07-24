@@ -8,15 +8,24 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "node --loader ts-node/esm scripts/seed.ts"
+    "lint:fix": "next lint --fix",
+    "seed": "node --loader ts-node/esm scripts/seed.ts",
+    "db:setup": "mysql -u $MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DATABASE < schema.sql",
+    "db:reset": "npm run db:setup && npm run seed",
+    "type-check": "tsc --noEmit",
+    "analyze": "ANALYZE=true npm run build"
   },
   "dependencies": {
+    "@react-three/drei": "^10.6.0",
+    "@react-three/fiber": "^9.2.0",
     "@supabase/supabase-js": "^2.52.0",
+    "@types/three": "^0.178.1",
     "dotenv": "^17.2.0",
     "mysql2": "^3.14.2",
     "next": "15.4.2",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "three": "^0.178.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 // Load environment variables from .env file
 dotenv.config();
 
+const isCloudDatabase = process.env.MYSQL_HOST?.includes('aivencloud.com');
+
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST,
   port: Number(process.env.MYSQL_PORT) || 3306,
@@ -13,6 +15,12 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  // SSL configuration for cloud databases
+  ...(isCloudDatabase && {
+    ssl: {
+      rejectUnauthorized: false, // For Aiven cloud databases
+    }
+  }),
 });
 
 export default pool; 

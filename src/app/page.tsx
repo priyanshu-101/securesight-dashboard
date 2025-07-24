@@ -1,6 +1,17 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
+import InteractiveTimeline from './components/InteractiveTimeline';
+
+interface TimelineIncident {
+  id: number;
+  type: string;
+  timestamp: Date;
+  camera: string;
+  severity: 'low' | 'medium' | 'high';
+  duration: number; // in minutes
+}
 
 interface Incident {
   id: number;
@@ -14,15 +25,9 @@ interface Incident {
   resolved: boolean;
 }
 
-interface CameraEvent {
-  camera: string;
-  type: string;
-  time: string;
-  color: string;
-}
-
 export default function SecurityDashboard() {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [mounted, setMounted] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
@@ -36,88 +41,58 @@ export default function SecurityDashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timelineIncidents, setTimelineIncidents] = useState<TimelineIncident[]>([]);
+  const [selectedTimelineTime, setSelectedTimelineTime] = useState<Date>(new Date());
 
-  const [cameraEvents, setCameraEvents] = useState<CameraEvent[]>([
-    { camera: 'Camera - 01', type: 'Unauthorised Access', time: '03:00', color: 'bg-orange-500' },
-    { camera: 'Camera - 01', type: 'Face Recognised', time: '14:45', color: 'bg-blue-500' },
-    { camera: 'Camera - 01', type: 'Multiple Events', time: '4 Multiple Events', color: 'bg-yellow-500' },
-    { camera: 'Camera - 02', type: 'Unauthorised Access', time: '01:00', color: 'bg-orange-500' },
-    { camera: 'Camera - 02', type: 'Face Recognised', time: '', color: 'bg-blue-500' },
-    { camera: 'Camera - 03', type: 'Traffic congestion', time: '', color: 'bg-green-500' },
-    { camera: 'Camera - 03', type: 'Unauthorised Access', time: '', color: 'bg-orange-500' },
-  ]);
+  // Transform incidents to timeline format
+  useEffect(() => {
+    const transformedIncidents: TimelineIncident[] = incidents.map(incident => {
+      let severity: 'low' | 'medium' | 'high' = 'medium';
+      
+      if (incident.type.includes('Gun') || incident.type.includes('Weapon')) {
+        severity = 'high';
+      } else if (incident.type.includes('Unauthorised') || incident.type.includes('Access')) {
+        severity = 'high';
+      } else if (incident.type.includes('Face') || incident.type.includes('Recognition')) {
+        severity = 'low';
+      } else if (incident.type.includes('Traffic')) {
+        severity = 'medium';
+      }
+      
+      const startTime = new Date(incident.ts_start);
+      const endTime = new Date(incident.ts_end);
+      const duration = Math.max(1, Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60))); // in minutes
+      
+      return {
+        id: incident.id,
+        type: incident.type,
+        timestamp: startTime,
+        camera: incident.camera_name,
+        severity,
+        duration
+      };
+    });
+    
+    setTimelineIncidents(transformedIncidents);
+  }, [incidents]);
+
+  // Handle timeline time change
+  const handleTimelineTimeChange = (time: Date) => {
+    setSelectedTimelineTime(time);
+    // Here you could add logic to seek video to specific time
+    console.log('Timeline time changed to:', time);
+  };
+
+  // Handle timeline incident click
+  const handleTimelineIncidentClick = (incident: TimelineIncident) => {
+    console.log('Timeline incident clicked:', incident);
+    // You could scroll to the incident in the sidebar or show details
+  };
 
   // Generate camera events from incidents
   useEffect(() => {
-    if (incidents.length > 0) {
-      const eventsByCamera: { [key: string]: CameraEvent[] } = {};
-      
-      incidents.forEach(incident => {
-        const cameraKey = incident.camera_name;
-        const time = new Date(incident.ts_start).toLocaleTimeString('en-GB', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-        
-        let color = 'bg-gray-500';
-        if (incident.type.includes('Unauthorised') || incident.type.includes('Access')) {
-          color = 'bg-orange-500';
-        } else if (incident.type.includes('Face') || incident.type.includes('Recognition')) {
-          color = 'bg-blue-500';
-        } else if (incident.type.includes('Traffic') || incident.type.includes('congestion')) {
-          color = 'bg-green-500';
-        } else if (incident.type.includes('Gun') || incident.type.includes('Weapon')) {
-          color = 'bg-red-500';
-        }
-
-        const event: CameraEvent = {
-          camera: cameraKey,
-          type: incident.type,
-          time: time,
-          color: color
-        };
-
-        if (!eventsByCamera[cameraKey]) {
-          eventsByCamera[cameraKey] = [];
-        }
-        eventsByCamera[cameraKey].push(event);
-      });
-
-      // Convert to array format expected by the UI
-      const allEvents: CameraEvent[] = [];
-      Object.entries(eventsByCamera).forEach(([camera, events]) => {
-        if (events.length > 1) {
-          // Group multiple events
-          allEvents.push({
-            camera: camera,
-            type: 'Multiple Events',
-            time: `${events.length} Events`,
-            color: 'bg-yellow-500'
-          });
-        } else if (events.length === 1) {
-          allEvents.push(events[0]);
-        }
-      });
-
-      // Add default cameras if no incidents
-      const defaultCameras = ['Camera - 01', 'Camera - 02', 'Camera - 03'];
-      defaultCameras.forEach(camera => {
-        if (!eventsByCamera[camera] && !eventsByCamera[camera.replace(' - ', ' ')]) {
-          allEvents.push({
-            camera: camera,
-            type: 'No Activity',
-            time: '',
-            color: 'bg-gray-600'
-          });
-        }
-      });
-
-      setCameraEvents(allEvents);
-    }
-  }, [incidents]);
-
-  useEffect(() => {
-    // Set initial time on client side only
+    // Set initial time on client side only to prevent hydration mismatch
+    setMounted(true);
     setCurrentTime(new Date());
     
     const timer = setInterval(() => {
@@ -397,7 +372,7 @@ export default function SecurityDashboard() {
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-semibold">SecureSight Dashboard</h1>
             <div className="text-sm">
-              {currentTime ? `${currentTime.toLocaleDateString()} - ${currentTime.toLocaleTimeString()}` : 'Loading...'}
+              {mounted && currentTime ? `${currentTime.toLocaleDateString()} - ${currentTime.toLocaleTimeString()}` : 'Loading...'}
             </div>
           </div>
         </div>
@@ -416,7 +391,7 @@ export default function SecurityDashboard() {
                 </button>
               </div>
               <div className="absolute top-4 right-4 bg-black bg-opacity-60 px-3 py-1 rounded text-sm z-10">
-                🔴 {currentTime ? currentTime.toLocaleDateString() : ''} - {currentTime ? currentTime.toLocaleTimeString() : ''}
+                🔴 {mounted && currentTime ? currentTime.toLocaleDateString() : ''} - {mounted && currentTime ? currentTime.toLocaleTimeString() : ''}
               </div>
               
               {!isCameraEnabled ? (
@@ -626,77 +601,29 @@ export default function SecurityDashboard() {
           </div>
         </div>
 
-        {/* Timeline */}
+        {/* Interactive Timeline */}
+        <div className="border-t border-gray-700">
+          <InteractiveTimeline
+            incidents={timelineIncidents}
+            currentTime={selectedTimelineTime}
+            onTimeChange={handleTimelineTimeChange}
+            onIncidentClick={handleTimelineIncidentClick}
+          />
+        </div>
+
+        {/* Navigation to 3D Page */}
         <div className="bg-gray-900 border-t border-gray-700 p-4">
-          {/* Video Controls */}
-          <div className="flex items-center gap-4 mb-4">
-            <button className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center hover:bg-gray-600">
-              ⏮️
-            </button>
-            <button className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center hover:bg-gray-600">
-              ⏸️
-            </button>
-            <button className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center hover:bg-gray-600">
-              ▶️
-            </button>
-            <button className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center hover:bg-gray-600">
-              ⏸️
-            </button>
-            <button className="w-8 h-8 bg-gray-700 rounded-full flex items-center justify-center hover:bg-gray-600">
-              ⏭️
-            </button>
-            <div className="text-sm ml-4">03:12:37 (15-Jun-2025)</div>
-            <button className="ml-4 text-sm hover:text-gray-300">1x</button>
-            <button className="text-sm hover:text-gray-300">🔄</button>
-          </div>
-
-          {/* Timeline Ruler */}
-          <div className="relative mb-4">
-            <div className="h-8 bg-gray-800 rounded relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-gray-700 to-gray-600"></div>
-              <div className="absolute top-2 left-0 right-0 flex justify-between text-xs text-gray-400 px-2">
-                <span>00:00</span>
-                <span>03:00</span>
-                <span>06:00</span>
-                <span>09:00</span>
-                <span>12:00</span>
-                <span>15:00</span>
-                <span>18:00</span>
-                <span>21:00</span>
-                <span>24:00</span>
-              </div>
-              <div className="absolute top-0 left-1/4 w-0.5 h-8 bg-yellow-500"></div>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white mb-1">Enhanced Visualization</h3>
+              <p className="text-xs text-gray-400">Explore 3D security network visualization</p>
             </div>
-          </div>
-
-          {/* Camera List */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Camera List</h3>
-            <div className="space-y-2">
-              {cameraEvents.map((event, index) => (
-                <div key={index} className="flex items-center gap-4 py-1">
-                  <div className="flex items-center gap-2 w-24">
-                    <span className="text-gray-400">📹</span>
-                    <span className="text-sm">{event.camera}</span>
-                  </div>
-                  <div className="flex-1 h-6 bg-gray-800 rounded relative">
-                    <div className={`absolute left-1/4 top-1 bottom-1 w-8 ${event.color} rounded text-xs flex items-center justify-center text-white`}>
-                      {event.type.includes('Unauthorised') || event.type.includes('Access') ? '⚠️' : 
-                       event.type.includes('Face') || event.type.includes('Recognition') ? '👤' : 
-                       event.type.includes('Traffic') || event.type.includes('congestion') ? '🚗' :
-                       event.type.includes('Gun') || event.type.includes('Weapon') ? '🔫' :
-                       event.type.includes('Multiple') ? '📊' :
-                       event.type.includes('No Activity') ? '💤' : '📊'}
-                    </div>
-                    {event.time && (
-                      <div className="absolute right-2 top-1 text-xs text-gray-400">
-                        {event.time}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <Link 
+              href="/3d"
+              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm font-medium transition-colors"
+            >
+              View 3D Dashboard →
+            </Link>
           </div>
         </div>
       </div>

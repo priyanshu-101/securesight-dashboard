@@ -10,6 +10,7 @@
     "lint": "next lint",
     "lint:fix": "next lint --fix",
     "seed": "node --loader ts-node/esm scripts/seed.ts",
+    "setup-db": "node --loader ts-node/esm scripts/setup-db.ts",
     "db:setup": "mysql -u $MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DATABASE < schema.sql",
     "db:reset": "npm run db:setup && npm run seed",
     "type-check": "tsc --noEmit",
